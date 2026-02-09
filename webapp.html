@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--Vibe coded by KBS and Copilot-->
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel File Parser with Pyodide and Pandas</title>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.21.3/full/pyodide.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+    </style>
+</head>
+<body>
+    <h1>Excel File Parser with Pyodide and Pandas</h1>
+    <p>This tool allows you to upload an Excel file containing results from
+    QuantStudio 5 and group the CT values by specified row and column
+    ranges.</p>
+    <h2>Specify Row and Column Ranges</h2>
+    <p>Enter the labels to use for grouping rows (A to P) and columns (1 to
+    24), listing one label per line. Replicates are implied by repeating
+    labels. Do not leave blank lines. If some rows/columns are omitted, e.g. if
+    some rows/columns on the plate were skipped, fill in a dummy name for those
+    slots.</p>
+    <form id="rangeForm">
+      <label for="rowLabels">Row Labels (max 16, A to P):</label><br>
+        <textarea id="rowLabels" name="rowLabels" rows="10", cols="20">Sample1
+Sample1
+Sample1
+Sample2
+Sample2
+Sample2
+Sample3
+Sample3
+Sample3
+Sample4
+Sample4
+Sample4</textarea><br><br>
+        <label for="colLabels">Column Labels (max 24):</label><br>
+        <textarea id="colLabels" name="colLabels" rows="10", cols="20">Primer1
+Primer2
+Primer3
+Primer4
+Primer5
+Primer6</textarea>
+    </form>
+    <h2>Upload Excel File</h2>
+    <input type="file" id="fileInput" accept=".xls, .xlsx">
+    <div id="loadingMessage" style="display:none;">Loading...</div>
+    <div id="tableContainer"></div>
+    <script>
+        async function loadPyodideAndPackages() {
+            <!--Display loading message-->
+            document.getElementById('loadingMessage').style.display = 'block';
+            const pyodide = await loadPyodide();
+            await pyodide.loadPackage("pandas");
+            await pyodide.loadPackage("xlrd");
+            await pyodide.loadPackage("micropip");
+            <!--Install openpyxl via micropip-->
+            await pyodide.runPythonAsync(`
+import micropip
+await micropip.install('openpyxl')
+import openpyxl
+            `);
+            return pyodide;
+        }
+
+        function arrayBufferToBase64(buffer) {
+            let binary = '';
+            const bytes = new Uint8Array(buffer);
+            const len = bytes.byteLength;
+            for (let i = 0; i < len; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return window.btoa(binary);
+        }
+
+        document.getElementById('fileInput').addEventListener('change', async (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const pyodide = await loadPyodideAndPackages();
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                const arrayBuffer = e.target.result;
+                const base64Data = arrayBufferToBase64(arrayBuffer);
+
+                const pythonCode = `
+import pandas as pd
+import io
+import base64
+file_data = base64.b64decode("${base64Data}")
+excel_data = io.BytesIO(file_data)
+# Find out how many lines of metadata to skip
+_df = pd.read_excel(excel_data, sheet_name="Results")
+header_row = (_df.iloc[:,0] == "Well").idxmax()
+# Import again starting from the actual header row
+df = pd.read_excel(excel_data, sheet_name="Results", skiprows=header_row+1)
+columns = ["Well", "Well Position", "Sample Name", "Target Name", "CT"]
+df["CT"] = pd.to_numeric(df["CT"], errors='coerce') # invalid parsing will be set as NaN
+df = df[columns]
+df['Row'] = df['Well Position'].str.extract(r'([A-P])')
+df['Column'] = df['Well Position'].str.extract(r'(\\d+)').astype(int)
+row_labels = """${document.getElementById('rowLabels').value}""".strip().split('\\n')
+col_labels = """${document.getElementById('colLabels').value}""".strip().split('\\n')
+row_map = {chr(idx+65) : label for idx, label in enumerate(row_labels) if label}
+# Generate column letters A to P (characters 65 to 80)
+col_map = {idx+1 : label for idx, label in enumerate(col_labels) if label}
+df['Row Group'] = df['Row'].map(row_map)
+df['Column Group'] = df['Column'].map(col_map)
+df_grouped = df.groupby(['Row Group', 'Column Group'])['CT'].mean().reset_index()
+# df_pivot = df_grouped['CT'].mean().unstack()
+# df_pivot.index.name = 'Row Group'
+# df_pivot.columns.name = 'Column Group'
+# df = df_pivot.reset_index()
+html_table = df_grouped.to_html(index=False)
+html_table
+                `;
+                const htmlTable = await pyodide.runPythonAsync(pythonCode);
+                document.getElementById('tableContainer').innerHTML = htmlTable;
+                document.getElementById('loadingMessage').style.display = 'none';
+            };
+            reader.readAsArrayBuffer(file);
+        });
+    </script>
+</body>
