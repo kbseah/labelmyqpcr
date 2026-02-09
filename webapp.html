@@ -33,9 +33,9 @@
     <h2>Specify Row and Column Ranges</h2>
     <p>Enter the labels to use for grouping rows (A to P) and columns (1 to
     24), listing one label per line. Replicates are implied by repeating
-    labels. Do not leave blank lines. If some rows/columns are omitted, e.g. if
-    some rows/columns on the plate were skipped, fill in a dummy name for those
-    slots.</p>
+    labels. Do not leave blank lines. If some rows/columns on the plate were
+    skipped, just leave the placeholder names unchanged, they will be
+    ignored.</p>
     <form id="rangeForm">
       <label for="rowLabels">Row Labels (max 16, A to P):</label><br>
         <textarea id="rowLabels" name="rowLabels" rows="10", cols="20">Sample1
@@ -49,14 +49,36 @@ Sample3
 Sample3
 Sample4
 Sample4
-Sample4</textarea><br><br>
+Sample4
+row M
+row N
+row O
+row P</textarea><br><br>
         <label for="colLabels">Column Labels (max 24):</label><br>
-        <textarea id="colLabels" name="colLabels" rows="10", cols="20">Primer1
-Primer2
-Primer3
-Primer4
-Primer5
-Primer6</textarea>
+        <textarea id="colLabels" name="colLabels" rows="10", cols="20">primer1
+primer2
+primer3
+primer4
+primer5
+primer6
+col 7
+col 8
+col 9
+col 10
+col 11
+col 12
+col 13
+col 14
+col 15
+col 16
+col 17
+col 18
+col 19
+col 20
+col 21
+col 22
+col 23
+col 24</textarea>
     </form>
     <h2>Upload Excel File</h2>
     <input type="file" id="fileInput" accept=".xls, .xlsx">
@@ -122,7 +144,7 @@ row_map = {chr(idx+65) : label for idx, label in enumerate(row_labels) if label}
 col_map = {idx+1 : label for idx, label in enumerate(col_labels) if label}
 df['Row Group'] = df['Row'].map(row_map)
 df['Column Group'] = df['Column'].map(col_map)
-df_grouped = df.groupby(['Row Group', 'Column Group'])['CT'].mean().reset_index()
+df_grouped = df.groupby(['Row Group', 'Column Group'])['CT'].agg(['mean','std']).reset_index()
 # df_pivot = df_grouped['CT'].mean().unstack()
 # df_pivot.index.name = 'Row Group'
 # df_pivot.columns.name = 'Column Group'
