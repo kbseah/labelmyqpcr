@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Excel File Parser with Pyodide and Pandas</title>
+    <title>QuantStudio Excel sheet CT value summarizer</title>
     <script src="https://cdn.jsdelivr.net/pyodide/v0.21.3/full/pyodide.js"></script>
     <style>
         body {
@@ -26,10 +26,15 @@
     </style>
 </head>
 <body>
-    <h1>Excel File Parser with Pyodide and Pandas</h1>
+    <h1>QuantStudio Excel sheet CT value summarizer</h1>
     <p>This tool allows you to upload an Excel file containing results from
-    QuantStudio 5 and group the CT values by specified row and column
-    ranges.</p>
+    QuantStudio 5, group the CT values by specified row and column ranges, and
+    compute the mean and standard deviation for each group. This is useful if
+    you did not specify the sample and target names in QuantStudio before
+    starting the run. The exported results from QuantStudio should be in Excel
+    format (.xls or .xlsx) and must contain a sheet named "Results" with
+    columns "Well Position" and "CT". The CT mean and SD values in the input
+    spreadsheet will be ignored.</p>
     <h2>Specify Row and Column Ranges</h2>
     <p>Enter the labels to use for grouping rows (A to P) and columns (1 to
     24), listing one label per line. Replicates are implied by repeating
