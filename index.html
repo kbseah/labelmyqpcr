@@ -43,12 +43,13 @@
     names in QuantStudio before starting the run, or if you wish to regroup
     them afterwards.</p>
 
-    <h2>How this works</h2>
+    <h2>Results File Format</h2>
 
     <p>The exported results from QuantStudio should be in Excel format (.xls or
     .xlsx) and must contain a sheet named "Results" with columns "Well
     Position" and "CT". The CT mean and SD values in the input spreadsheet will
-    be ignored.</p>
+    be ignored. Files produced by other instrument models can be used too if
+    they follow this format.</p>
 
     <p>For testing you may download an <a href="example-results.xls">example
       results file</a> with well positions that correspond to the example
@@ -56,12 +57,11 @@
     
     <p>We assume that a typical qPCR run includes technical replicates for each
     sample-primer pair, and that we wish to calculate the mean CT value of each
-    set of technical replicates.</p>
+    set of technical replicates. Samples may be further grouped into sample
+    groups, which represent different experimental conditions that you wish to
+    compare.</p>
 
-    <p>Samples may be further grouped into sample groups, which represent
-    different experimental conditions that you wish to compare.</p>
-
-    <h2>Prepare Sample and Primer Labels</h2>
+    <h2>Prepare Labels</h2>
     <p><a href="plate-labels.xlsx">Download the plate labels spreadsheet</a>,
     which is pre-filled with some example values. There are three sheets in the
     file: "Primers", "Samples", and "SampleGroups". The sheet layout mimics the
@@ -74,13 +74,17 @@
     pair. Any well whose Well Position (e.g. A1, B2) is not found in the
     QuantStudio Results sheet will be ignored.</p>
 
-    <p>Sample groups will not be used for the CT mean calculation but can be
-    used as a plotting parameter later.</p>
+    <p>If you do not wish to use the sample groups, uncheck the box below. If
+    sample groups and samples do not overlap consistently, the grouping for CT
+    mean calculations will be incorrect.</p>
 
     <h2>Upload Files to Process</h2>
 
     <p>Excel file with the sample and primer labels:
     <input type="file" id="labelsInput" accept=".xls, .xlsx"></p>
+    <!--Checkbox to indicate if SampleGroups sheet is present-->
+    <input type="checkbox" id="useSampleGroups" checked>
+    <label for="useSampleGroups">Use groups from SampleGroups sheet</label>
 
     <p>Excel File with qPCR Results:
     <input type="file" id="fileInput" accept=".xls, .xlsx"></p>
@@ -165,6 +169,7 @@ import openpyxl
             document.getElementById("processButton").disabled = true;
             const labelsFile = document.getElementById("labelsInput").files[0];
             const resultsFile = document.getElementById("fileInput").files[0];
+            const useSampleGroups = document.getElementById("useSampleGroups").checked;
             if (!labelsFile || !resultsFile) {
                 alert("Please upload both the labels file and the results file.");
                 document.getElementById("loadingMessage").style.display = "none";
@@ -192,9 +197,13 @@ primer_labels.drop(["PLATE","col"],axis=1,inplace=True)
 sample_labels = sample_labels.melt(ignore_index=False, var_name="col", value_name="sample").reset_index()
 sample_labels["Well Position"] = sample_labels["PLATE"] + sample_labels["col"].astype(str)
 sample_labels.drop(["PLATE","col"],axis=1,inplace=True)
-samplegroup_labels = samplegroup_labels.melt(ignore_index=False, var_name="col", value_name="samplegroup").reset_index()
-samplegroup_labels["Well Position"] = samplegroup_labels["PLATE"] + samplegroup_labels["col"].astype(str)
-samplegroup_labels.drop(["PLATE","col"],axis=1,inplace=True)
+if "${useSampleGroups}" == "true":
+  samplegroup_labels = samplegroup_labels.melt(ignore_index=False, var_name="col", value_name="samplegroup").reset_index()
+  samplegroup_labels["Well Position"] = samplegroup_labels["PLATE"] + samplegroup_labels["col"].astype(str)
+  samplegroup_labels.drop(["PLATE","col"],axis=1,inplace=True)
+else:
+  samplegroup_labels = sample_labels[["Well Position"]].copy()
+  samplegroup_labels["samplegroup"] = "ungrouped"
 (primer_labels, sample_labels, samplegroup_labels)`;
                 const [primer_labels, sample_labels, samplegroup_labels] = await pyodide.runPythonAsync(pythonCodeForLabels);
                 // Read results file
