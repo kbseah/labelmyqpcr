@@ -71,23 +71,23 @@
 
     <script>
         async function loadPyodideAndPackages() {
-            <!--Display loading message-->
-            document.getElementById('loadingMessage').style.display = 'block';
+            // Display loading message
+            document.getElementById("loadingMessage").style.display = "block";
             const pyodide = await loadPyodide();
             await pyodide.loadPackage("pandas");
             await pyodide.loadPackage("xlrd");
             await pyodide.loadPackage("micropip");
-            <!--Install openpyxl via micropip-->
+            // Install openpyxl via micropip
             await pyodide.runPythonAsync(`
 import micropip
-await micropip.install('openpyxl')
+await micropip.install("openpyxl")
 import openpyxl
             `);
             return pyodide;
         }
 
         function arrayBufferToBase64(buffer) {
-            let binary = '';
+            let binary = "";
             const bytes = new Uint8Array(buffer);
             const len = bytes.byteLength;
             for (let i = 0; i < len; i++) {
@@ -99,15 +99,15 @@ import openpyxl
         async function processFiles() {
             const pyodide = await loadPyodideAndPackages();
             // Display loading message
-            document.getElementById('processingMessage').style.display = 'block';
-            document.getElementById('processButton').disabled = true;
-            const labelsFile = document.getElementById('labelsInput').files[0];
-            const resultsFile = document.getElementById('fileInput').files[0];
+            document.getElementById("processingMessage").style.display = "block";
+            document.getElementById("processButton").disabled = true;
+            const labelsFile = document.getElementById("labelsInput").files[0];
+            const resultsFile = document.getElementById("fileInput").files[0];
             if (!labelsFile || !resultsFile) {
                 alert("Please upload both the labels file and the results file.");
-                document.getElementById('loadingMessage').style.display = 'none';
-                document.getElementById('processingMessage').style.display = 'none';
-                document.getElementById('processButton').disabled = false;
+                document.getElementById("loadingMessage").style.display = "none";
+                document.getElementById("processingMessage").style.display = "none";
+                document.getElementById("processButton").disabled = false;
                 return; 
             }
             // Read labels file
@@ -125,12 +125,11 @@ primer_labels = pd.read_excel(excel_data, sheet_name="Primers", index_col=0)
 sample_labels = pd.read_excel(excel_data, sheet_name="Samples", index_col=0)
 primer_labels = primer_labels.melt(ignore_index=False, var_name="col", value_name="primer").reset_index()
 primer_labels["Well Position"] = primer_labels["PLATE"] + primer_labels["col"].astype(str)
-primer_labels.drop(['PLATE','col'],axis=1,inplace=True)
+primer_labels.drop(["PLATE","col"],axis=1,inplace=True)
 sample_labels = sample_labels.melt(ignore_index=False, var_name="col", value_name="sample").reset_index()
 sample_labels["Well Position"] = sample_labels["PLATE"] + sample_labels["col"].astype(str)
-sample_labels.drop(['PLATE','col'],axis=1,inplace=True)
-(primer_labels, sample_labels)
-                `;
+sample_labels.drop(["PLATE","col"],axis=1,inplace=True)
+(primer_labels, sample_labels)`;
                 const [primer_labels, sample_labels] = await pyodide.runPythonAsync(pythonCodeForLabels);
                 // Read results file
                 const resultsReader = new FileReader();
@@ -144,41 +143,34 @@ excel_data = io.BytesIO(file_data)
 _df = pd.read_excel(excel_data, sheet_name="Results")
 header_row = (_df.iloc[:,0] == "Well").idxmax()
 # Import again starting from the actual header row
-df = pd.read_excel(excel_data, sheet_name="Results", skiprows=header_row+1)
-columns = ["Well", "Well Position", "Sample Name", "Target Name", "CT"]
-df["CT"] = pd.to_numeric(df["CT"], errors='coerce') # invalid parsing will be set as NaN
-df = df[columns]
-df = df.merge(sample_labels, on="Well Position", how="left")
-df = df.merge(primer_labels, on="Well Position", how="left")
-df_grouped = df.groupby(['primer', 'sample'])['CT'].agg(['mean','std','count']).reset_index()
+df = pd.read_excel(excel_data, sheet_name="Results", skiprows=header_row+1)[["Well Position", "CT"]]
+df["CT"] = pd.to_numeric(df["CT"], errors="coerce") # invalid parsing will be set as NaN
+df = df.merge(sample_labels, on="Well Position", how="left").merge(primer_labels, on="Well Position", how="left")
+df_grouped = df.groupby(["primer", "sample"])["CT"].agg(["mean","std","count"]).reset_index()
 html_table = df_grouped.to_html(index=False)
-(df_grouped, html_table)
-                    `;
+(df_grouped, html_table)`;
                     const [df_grouped, html_table] = await pyodide.runPythonAsync(pythonCodeForResults);
-                    document.getElementById('tableContainer').innerHTML = html_table;
-                    document.getElementById('loadingMessage').style.display = 'none';
-                    document.getElementById('processingMessage').style.display = 'none';
-                    document.getElementById('processButton').disabled = false;
+                    document.getElementById("tableContainer").innerHTML = html_table;
+                    document.getElementById("loadingMessage").style.display = "none";
+                    document.getElementById("processingMessage").style.display = "none";
+                    document.getElementById("processButton").disabled = false;
                 };
                 resultsReader.readAsArrayBuffer(resultsFile);
                 // Activate download button and let user download df_grouped as an Excel file to a file name of their choice
-                document.getElementById('downloadButton').disabled = false;
-                document.getElementById('downloadButton').onclick = async () => {
+                document.getElementById("downloadButton").disabled = false;
+                document.getElementById("downloadButton").onclick = async () => {
                     const pythonCodeForDownload = `
-import io
 output = io.BytesIO()
-with pd.ExcelWriter(output, engine='openpyxl') as writer:
-    df_grouped.to_excel(writer, index=False, sheet_name='CT Summary')
+with pd.ExcelWriter(output, engine="openpyxl") as writer:
+    df_grouped.to_excel(writer, index=False, sheet_name="CT Summary")
 output.seek(0)
 excel_data = output.read()
-import base64
-base64.b64encode(excel_data).decode('utf-8')
-                    `;
+base64.b64encode(excel_data).decode("utf-8")`;
                     const excelBase64 = await pyodide.runPythonAsync(pythonCodeForDownload);
-                    const excelBlob = new Blob([Uint8Array.from(atob(excelBase64), c => c.charCodeAt(0))], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
-                    const downloadLink = document.createElement('a');
+                    const excelBlob = new Blob([Uint8Array.from(atob(excelBase64), c => c.charCodeAt(0))], {type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+                    const downloadLink = document.createElement("a");
                     downloadLink.href = URL.createObjectURL(excelBlob);
-                    downloadLink.download = 'ct_summary.xlsx';
+                    downloadLink.download = "ct_summary.xlsx";
                     document.body.appendChild(downloadLink);
                     downloadLink.click();
                     document.body.removeChild(downloadLink);
