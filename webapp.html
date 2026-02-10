@@ -35,61 +35,27 @@
     format (.xls or .xlsx) and must contain a sheet named "Results" with
     columns "Well Position" and "CT". The CT mean and SD values in the input
     spreadsheet will be ignored.</p>
-    <h2>Specify Row and Column Ranges</h2>
-    <p>Enter the labels to use for grouping rows (A to P) and columns (1 to
-    24), listing one label per line. Replicates are implied by repeating
-    labels. Do not leave blank lines. If some rows/columns on the plate were
-    skipped, just leave the placeholder names unchanged, they will be
-    ignored.</p>
-    <form id="rangeForm">
-      <label for="rowLabels">Row Labels (max 16, A to P):</label><br>
-        <textarea id="rowLabels" name="rowLabels" rows="10", cols="20">Sample1
-Sample1
-Sample1
-Sample2
-Sample2
-Sample2
-Sample3
-Sample3
-Sample3
-Sample4
-Sample4
-Sample4
-row M
-row N
-row O
-row P</textarea><br><br>
-        <label for="colLabels">Column Labels (max 24):</label><br>
-        <textarea id="colLabels" name="colLabels" rows="10", cols="20">primer1
-primer2
-primer3
-primer4
-primer5
-primer6
-col 7
-col 8
-col 9
-col 10
-col 11
-col 12
-col 13
-col 14
-col 15
-col 16
-col 17
-col 18
-col 19
-col 20
-col 21
-col 22
-col 23
-col 24</textarea>
-    </form>
-    <h2>Upload Excel File</h2>
+
+    <h2>Specify Sample and Primer Labels</h2>
+    <p><a href="plate-labels.xlsx">Download the plate labels spreadsheet</a>,
+    which is pre-filled with some example values. There are two sheets in the
+    file: "Samples" and "Primers". The sheet layout mimics the layout of the
+    384-well plate. Fill in the sample and primer names in the respective
+    sheets, leaving blank cells for any unused wells. When you upload this
+    file, the tool will read the labels and use them to group the CT values
+    accordingly. Any wells whose Well Position (e.g. A1, B2) is not found in
+    the QuantStudio Results sheet will be ignored.</p>
+    <p>Upload the Excel file with the sample and primer labels:</p>
+    <input type="file" id="labelsInput" accept=".xls, .xlsx">
+    <p>Status: <div id="loadingMessage1" style="display:none;">Ready</div></p>
+
+    <h2>Upload Excel File with qPCR Results</h2>
     <input type="file" id="fileInput" accept=".xls, .xlsx">
     <div id="loadingMessage" style="display:none;">Loading...</div>
+    <button id="processButton" onclick="processFiles()">Process Files</button>
     <button id="downloadButton">Download CT Summary as Excel</button>
     <div id="tableContainer"></div>
+
     <script>
         async function loadPyodideAndPackages() {
             <!--Display loading message-->
@@ -117,21 +83,48 @@ import openpyxl
             return window.btoa(binary);
         }
 
-        document.getElementById('fileInput').addEventListener('change', async (event) => {
-            const file = event.target.files[0];
-            if (!file) return;
-
+        async function processFiles() {
             const pyodide = await loadPyodideAndPackages();
-            const reader = new FileReader();
-            reader.onload = async (e) => {
-                const arrayBuffer = e.target.result;
-                const base64Data = arrayBufferToBase64(arrayBuffer);
-
-                const pythonCode = `
+            // Display loading message
+            document.getElementById('loadingMessage').style.display = 'block';
+            document.getElementById('processButton').disabled = true;
+            const labelsFile = document.getElementById('labelsInput').files[0];
+            const resultsFile = document.getElementById('fileInput').files[0];
+            if (!labelsFile || !resultsFile) {
+                alert("Please upload both the labels file and the results file.");
+                document.getElementById('loadingMessage').style.display = 'none';
+                document.getElementById('processButton').disabled = false;
+                return; 
+            }
+            // Read labels file
+            const labelsReader = new FileReader();
+            labelsReader.onload = async (e) => {
+                const labelsArrayBuffer = e.target.result;
+                const labelsBase64Data = arrayBufferToBase64(labelsArrayBuffer);
+                const pythonCodeForLabels = `
 import pandas as pd
 import io
 import base64
-file_data = base64.b64decode("${base64Data}")
+file_data = base64.b64decode("${labelsBase64Data}")
+excel_data = io.BytesIO(file_data)
+primer_labels = pd.read_excel(excel_data, sheet_name="Primers", index_col=0)
+sample_labels = pd.read_excel(excel_data, sheet_name="Samples", index_col=0)
+primer_labels = primer_labels.melt(ignore_index=False, var_name="col", value_name="primer").reset_index()
+primer_labels["Well Position"] = primer_labels["PLATE"] + primer_labels["col"].astype(str)
+primer_labels.drop(['PLATE','col'],axis=1,inplace=True)
+sample_labels = sample_labels.melt(ignore_index=False, var_name="col", value_name="sample").reset_index()
+sample_labels["Well Position"] = sample_labels["PLATE"] + sample_labels["col"].astype(str)
+sample_labels.drop(['PLATE','col'],axis=1,inplace=True)
+(primer_labels, sample_labels)
+                `;
+                const [primer_labels, sample_labels] = await pyodide.runPythonAsync(pythonCodeForLabels);
+                // Read results file
+                const resultsReader = new FileReader();
+                resultsReader.onload = async (e) => {
+                    const resultsArrayBuffer = e.target.result;
+                    const resultsBase64Data = arrayBufferToBase64(resultsArrayBuffer);
+                    const pythonCodeForResults = `
+file_data = base64.b64decode("${resultsBase64Data}")
 excel_data = io.BytesIO(file_data)
 # Find out how many lines of metadata to skip
 _df = pd.read_excel(excel_data, sheet_name="Results")
@@ -141,48 +134,21 @@ df = pd.read_excel(excel_data, sheet_name="Results", skiprows=header_row+1)
 columns = ["Well", "Well Position", "Sample Name", "Target Name", "CT"]
 df["CT"] = pd.to_numeric(df["CT"], errors='coerce') # invalid parsing will be set as NaN
 df = df[columns]
-df['Row'] = df['Well Position'].str.extract(r'([A-P])')
-df['Column'] = df['Well Position'].str.extract(r'(\\d+)').astype(int)
-row_labels = """${document.getElementById('rowLabels').value}""".strip().split('\\n')
-col_labels = """${document.getElementById('colLabels').value}""".strip().split('\\n')
-row_map = {chr(idx+65) : label for idx, label in enumerate(row_labels) if label}
-# Generate column letters A to P (characters 65 to 80)
-col_map = {idx+1 : label for idx, label in enumerate(col_labels) if label}
-df['Row Group'] = df['Row'].map(row_map)
-df['Column Group'] = df['Column'].map(col_map)
-df_grouped = df.groupby(['Row Group', 'Column Group'])['CT'].agg(['mean','std','count']).reset_index()
-# df_pivot = df_grouped['CT'].mean().unstack()
-# df_pivot.index.name = 'Row Group'
-# df_pivot.columns.name = 'Column Group'
-# df = df_pivot.reset_index()
+df = df.merge(sample_labels, on="Well Position", how="left")
+df = df.merge(primer_labels, on="Well Position", how="left")
+df_grouped = df.groupby(['primer', 'sample'])['CT'].agg(['mean','std','count']).reset_index()
 html_table = df_grouped.to_html(index=False)
 (df_grouped, html_table)
-                `;
-                const [df_grouped, html_table] = await pyodide.runPythonAsync(pythonCode);
-                document.getElementById('tableContainer').innerHTML = html_table;
-                document.getElementById('loadingMessage').style.display = 'none';
+                    `;
+                    const [df_grouped, html_table] = await pyodide.runPythonAsync(pythonCodeForResults);
+                    document.getElementById('tableContainer').innerHTML = html_table;
+                    document.getElementById('loadingMessage').style.display = 'none';
+                    document.getElementById('processButton').disabled = false;
+                };
+                resultsReader.readAsArrayBuffer(resultsFile);
             };
-            reader.readAsArrayBuffer(file);
-            <!--Handle download button click-->
-            document.getElementById('downloadButton').onclick = async () => {
-                const pythonCodeForDownload = `
-import io
-output = io.BytesIO()
-with pd.ExcelWriter(output, engine='openpyxl') as writer:
-    df_grouped.to_excel(writer, index=False, sheet_name='CT Summary')
-output.seek(0)
-import base64
-b64 = base64.b64encode(output.read()).decode()
-b64
-                `;
-                const b64 = await pyodide.runPythonAsync(pythonCodeForDownload);
-                const link = document.createElement('a');
-                link.href = 'data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,' + b64;
-                link.download = 'ct_summary.xlsx';
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-            };
-        });
+            labelsReader.readAsArrayBuffer(labelsFile);
+        }
+
     </script>
 </body>
