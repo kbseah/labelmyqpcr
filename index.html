@@ -32,12 +32,14 @@
 
     <p>This tool allows you to upload an Excel file containing results from
     QuantStudio 5, group the CT values by specified sample and primer labels,
-    and compute the mean and standard deviation for each group. This is useful
-    if you did not specify the sample and target names in QuantStudio before
-    starting the run. The exported results from QuantStudio should be in Excel
-    format (.xls or .xlsx) and must contain a sheet named "Results" with
-    columns "Well Position" and "CT". The CT mean and SD values in the input
-    spreadsheet will be ignored.</p>
+    and compute the mean and standard deviation for each group of technical
+    replicates. This is useful if you did not specify the sample and target
+    names in QuantStudio before starting the run.</p>
+
+    <p>The exported results from QuantStudio should be in Excel format (.xls or
+    .xlsx) and must contain a sheet named "Results" with columns "Well
+    Position" and "CT". The CT mean and SD values in the input spreadsheet will
+    be ignored.</p>
 
     <p>For testing you may download an <a href="example-results.xls">example
       results file</a> with well positions that correspond to the example
@@ -66,8 +68,44 @@
     <button id="processButton" onclick="processFiles()">Process Files</button>
     <div id="loadingMessage" style="display:none;">Loading libraries...</div>
     <div id="processingMessage" style="display:none;">Processing files...</div>
+
+    <h2>Results</h2>
+
+    <h3>Table</h3>
     <button id="downloadButton" disabled=true>Download CT Summary as Excel</button>
-    <div id="tableContainer"></div>
+    <div id="tableContainer" style="width:800px;"></div>
+
+    <h3>Plot</h3>
+    <p>
+      Facet by:
+      <select id="facetBySelect">
+          <option value="none">None</option>
+          <option value="primer">Primer</option>
+          <option value="sample">Sample</option>
+      </select>
+    </p>
+    <p>
+      X-axis:
+      <select id="xAxisSelect">
+          <option value="sample">Sample</option>
+          <option value="primer">Primer</option>
+      </select>
+    </p>
+    <!--Input plot width and height later if needed-->
+    <p>
+      Plot height (inches): <input type="number" id="plotHeightInput" value="2" size="5">
+    </p>
+    <p>
+      Plot aspect ratio (width/height):
+      <input type="number" id="plotAspectInput" value="2" size="5">
+    </p>
+    <p>
+      Number of columns to wrap when facetting:
+      <input type="number" id="colWrapInput" value="3" size="5">
+    </p>
+    <button id="plotButton" disabled=true>Generate plot</button>
+    <div id="plottingMessage" style="display:none;">Generating plot...</div>
+    <div id="plotContainer"></div>
 
     <script>
         async function loadPyodideAndPackages() {
@@ -81,6 +119,7 @@
             await pyodide.runPythonAsync(`
 import micropip
 await micropip.install("openpyxl")
+await micropip.install("seaborn")
 import openpyxl
             `);
             return pyodide;
@@ -174,6 +213,35 @@ base64.b64encode(excel_data).decode("utf-8")`;
                     document.body.appendChild(downloadLink);
                     downloadLink.click();
                     document.body.removeChild(downloadLink);
+                };
+                // Plot df_grouped as swarmplot using seaborn and plot options from the dropdowns
+                document.getElementById("plotButton").disabled = false;
+                document.getElementById("plotButton").onclick = async () => {
+                  document.getElementById("plottingMessage").style.display = "block";
+                  const facetBy = document.getElementById("facetBySelect").value;
+                  const xAxis = document.getElementById("xAxisSelect").value;
+                  const plotHeightInput = document.getElementById("plotHeightInput").value;
+                  const plotAspectInput = document.getElementById("plotAspectInput").value;
+                  const colWrapInput = document.getElementById("colWrapInput").value;
+                  const pythonCodeForPlot = `
+import seaborn as sns
+col = 1 if "${facetBy}" == "none" else "${facetBy}"
+fg = sns.catplot(
+  data=df_grouped, col=col, col_wrap=int("${colWrapInput}"),
+  x="${xAxis}", y="mean", kind="swarm",
+  height=int("${plotHeightInput}"), aspect=int("${plotAspectInput}"),
+)
+buf = io.BytesIO()
+fg.savefig(buf, format="png")
+buf.seek(0)
+img_base64 = base64.b64encode(buf.read()).decode("utf-8")
+img_base64`;
+                  const imgBase64 = await pyodide.runPythonAsync(pythonCodeForPlot);
+                  const imgElement = document.createElement("img");
+                  imgElement.src = "data:image/png;base64," + imgBase64;
+                  document.getElementById("plotContainer").innerHTML = "";
+                  document.getElementById("plotContainer").appendChild(imgElement);
+                  document.getElementById("plottingMessage").style.display = "none";
                 };
             };
             labelsReader.readAsArrayBuffer(labelsFile);
