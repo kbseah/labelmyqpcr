@@ -23,6 +23,12 @@
         th {
             background-color: #f2f2f2;
         }
+        .message {
+            font-family: Courier New, monospace;
+            font-size: 80%;
+            color: darkgreen;
+            margin-top: 20px;
+        }
     </style>
 </head>
 <body>
@@ -34,7 +40,10 @@
     QuantStudio 5, group the CT values by specified sample and primer labels,
     and compute the mean and standard deviation for each group of technical
     replicates. This is useful if you did not specify the sample and target
-    names in QuantStudio before starting the run.</p>
+    names in QuantStudio before starting the run, or if you wish to regroup
+    them afterwards.</p>
+
+    <h2>How this works</h2>
 
     <p>The exported results from QuantStudio should be in Excel format (.xls or
     .xlsx) and must contain a sheet named "Results" with columns "Well
@@ -44,18 +53,29 @@
     <p>For testing you may download an <a href="example-results.xls">example
       results file</a> with well positions that correspond to the example
     values in the plate labels template sheet.</p>
+    
+    <p>We assume that a typical qPCR run includes technical replicates for each
+    sample-primer pair, and that we wish to calculate the mean CT value of each
+    set of technical replicates.</p>
+
+    <p>Samples may be further grouped into sample groups, which represent
+    different experimental conditions that you wish to compare.</p>
 
     <h2>Prepare Sample and Primer Labels</h2>
     <p><a href="plate-labels.xlsx">Download the plate labels spreadsheet</a>,
-    which is pre-filled with some example values. There are two sheets in the
-    file: "Samples" and "Primers". The sheet layout mimics the layout of the
-    384-well plate.</p>
+    which is pre-filled with some example values. There are three sheets in the
+    file: "Primers", "Samples", and "SampleGroups". The sheet layout mimics the
+    layout of the 384-well plate.</p>
 
-    <p>Fill in the sample and primer names in the respective sheets, leaving
-    blank cells for any unused wells. When you upload this file, the tool will
-    read the labels and use them to group the CT values accordingly. Any wells
-    whose Well Position (e.g. A1, B2) is not found in the QuantStudio Results
-    sheet will be ignored.</p>
+    <p>Fill in the primer, sample, and sample group names in the respective
+    sheets, leaving blank cells for any unused wells. When you upload this
+    file, the tool will read the labels and use the sample-primer pairs to
+    aggregate the CT values to take the mean CT value of each sample-primer
+    pair. Any well whose Well Position (e.g. A1, B2) is not found in the
+    QuantStudio Results sheet will be ignored.</p>
+
+    <p>Sample groups will not be used for the CT mean calculation but can be
+    used as a plotting parameter later.</p>
 
     <h2>Upload Files to Process</h2>
 
@@ -66,8 +86,8 @@
     <input type="file" id="fileInput" accept=".xls, .xlsx"></p>
 
     <button id="processButton" onclick="processFiles()">Process Files</button>
-    <div id="loadingMessage" style="display:none;">Loading libraries...</div>
-    <div id="processingMessage" style="display:none;">Processing files...</div>
+    <div id="loadingMessage" class="message" style="display:none;">🤖 Loading libraries...</div>
+    <div id="processingMessage" class="message" style="display:none;">🤖 Processing files...</div>
 
     <h2>Results</h2>
 
@@ -76,17 +96,20 @@
     <div id="tableContainer" style="width:800px;"></div>
 
     <h3>Plot</h3>
+    <p>Plot parameters can be adjusted and the plot regenerated as needed.</p>
     <p>
       Facet by:
       <select id="facetBySelect">
           <option value="none">None</option>
           <option value="primer">Primer</option>
           <option value="sample">Sample</option>
+          <option value="samplegroup">SampleGroup</option>
       </select>
     </p>
     <p>
       X-axis:
       <select id="xAxisSelect">
+          <option value="samplegroup">SampleGroup</option>
           <option value="sample">Sample</option>
           <option value="primer">Primer</option>
       </select>
@@ -104,7 +127,7 @@
       <input type="number" id="colWrapInput" value="3" size="5">
     </p>
     <button id="plotButton" disabled=true>Generate plot</button>
-    <div id="plottingMessage" style="display:none;">Generating plot...</div>
+    <div id="plottingMessage" class="message" style="display:none;">🤖 Generating plot...</div>
     <div id="plotContainer"></div>
 
     <script>
@@ -162,14 +185,18 @@ file_data = base64.b64decode("${labelsBase64Data}")
 excel_data = io.BytesIO(file_data)
 primer_labels = pd.read_excel(excel_data, sheet_name="Primers", index_col=0)
 sample_labels = pd.read_excel(excel_data, sheet_name="Samples", index_col=0)
+samplegroup_labels = pd.read_excel(excel_data, sheet_name="SampleGroups", index_col=0)
 primer_labels = primer_labels.melt(ignore_index=False, var_name="col", value_name="primer").reset_index()
 primer_labels["Well Position"] = primer_labels["PLATE"] + primer_labels["col"].astype(str)
 primer_labels.drop(["PLATE","col"],axis=1,inplace=True)
 sample_labels = sample_labels.melt(ignore_index=False, var_name="col", value_name="sample").reset_index()
 sample_labels["Well Position"] = sample_labels["PLATE"] + sample_labels["col"].astype(str)
 sample_labels.drop(["PLATE","col"],axis=1,inplace=True)
-(primer_labels, sample_labels)`;
-                const [primer_labels, sample_labels] = await pyodide.runPythonAsync(pythonCodeForLabels);
+samplegroup_labels = samplegroup_labels.melt(ignore_index=False, var_name="col", value_name="samplegroup").reset_index()
+samplegroup_labels["Well Position"] = samplegroup_labels["PLATE"] + samplegroup_labels["col"].astype(str)
+samplegroup_labels.drop(["PLATE","col"],axis=1,inplace=True)
+(primer_labels, sample_labels, samplegroup_labels)`;
+                const [primer_labels, sample_labels, samplegroup_labels] = await pyodide.runPythonAsync(pythonCodeForLabels);
                 // Read results file
                 const resultsReader = new FileReader();
                 resultsReader.onload = async (e) => {
@@ -184,8 +211,14 @@ header_row = (_df.iloc[:,0] == "Well").idxmax()
 # Import again starting from the actual header row
 df = pd.read_excel(excel_data, sheet_name="Results", skiprows=header_row+1)[["Well Position", "CT"]]
 df["CT"] = pd.to_numeric(df["CT"], errors="coerce") # invalid parsing will be set as NaN
-df = df.merge(sample_labels, on="Well Position", how="left").merge(primer_labels, on="Well Position", how="left")
-df_grouped = df.groupby(["primer", "sample"])["CT"].agg(["mean","std","count"]).reset_index()
+df = df.merge(
+  sample_labels, on="Well Position", how="left"
+).merge(
+  primer_labels, on="Well Position", how="left"
+).merge(
+  samplegroup_labels, on="Well Position", how="left"
+)
+df_grouped = df.groupby(["primer", "sample", "samplegroup"])["CT"].agg(["mean","std","count"]).reset_index()
 html_table = df_grouped.to_html(index=False)
 (df_grouped, html_table)`;
                     const [df_grouped, html_table] = await pyodide.runPythonAsync(pythonCodeForResults);
