@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QuantStudio Excel sheet CT value summarizer</title>
+    <title>QuantStudio qPCR results Excel spreadsheet processor</title>
     <script src="https://cdn.jsdelivr.net/pyodide/v0.21.3/full/pyodide.js"></script>
     <style>
         body {
@@ -32,22 +32,23 @@
     </style>
 </head>
 <body>
-    <h1>QuantStudio Excel sheet CT value summarizer</h1>
+    <h1>QuantStudio qPCR results Excel spreadsheet processor</h1>
 
     <p><a href="https://github.com/kbseah/labelmyqpcr">GitHub repo</a></p>
 
     <p>This tool allows you to upload an Excel file containing results from
-    QuantStudio 5, group the CT values by specified sample and primer labels,
+    QuantStudio 5, group the Ct values by specified sample and primer labels,
     and compute the mean and standard deviation for each group of technical
     replicates. This is useful if you did not specify the sample and target
     names in QuantStudio before starting the run, or if you wish to regroup
-    them afterwards.</p>
+    them afterwards. Swarm plots of the Ct values grouped by primer, sample, or
+    group labels can also be generated.</p>
 
     <h2>Results File Format</h2>
 
     <p>The exported results from QuantStudio should be in Excel format (.xls or
     .xlsx) and must contain a sheet named "Results" with columns "Well
-    Position" and "CT". The CT mean and SD values in the input spreadsheet will
+    Position" and "CT". The Ct mean and SD values in the input spreadsheet will
     be ignored. Files produced by other instrument models can be used too if
     they follow this format.</p>
 
@@ -56,7 +57,7 @@
     values in the plate labels template sheet.</p>
     
     <p>We assume that a typical qPCR run includes technical replicates for each
-    sample-primer pair, and that we wish to calculate the mean CT value of each
+    sample-primer pair, and that we wish to calculate the mean Ct value of each
     set of technical replicates. Samples may be further grouped into sample
     groups, which represent different experimental conditions that you wish to
     compare.</p>
@@ -70,12 +71,12 @@
     <p>Fill in the primer, sample, and sample group names in the respective
     sheets, leaving blank cells for any unused wells. When you upload this
     file, the tool will read the labels and use the sample-primer pairs to
-    aggregate the CT values to take the mean CT value of each sample-primer
+    aggregate the Ct values to take the mean Ct value of each sample-primer
     pair. Any well whose Well Position (e.g. A1, B2) is not found in the
     QuantStudio Results sheet will be ignored.</p>
 
     <p>If you do not wish to use the sample groups, uncheck the box below. If
-    sample groups and samples do not overlap consistently, the grouping for CT
+    sample groups and samples do not overlap consistently, the grouping for Ct
     mean calculations will be incorrect.</p>
 
     <h2>Upload Files to Process</h2>
@@ -96,7 +97,7 @@
     <h2>Results</h2>
 
     <h3>Table</h3>
-    <button id="downloadButton" disabled=true>Download CT Summary as Excel</button>
+    <button id="downloadButton" disabled=true>Download processed table in Excel format</button>
     <div id="tableContainer" style="width:800px;"></div>
 
     <h3>Plot</h3>
