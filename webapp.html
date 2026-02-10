@@ -88,6 +88,7 @@ col 24</textarea>
     <h2>Upload Excel File</h2>
     <input type="file" id="fileInput" accept=".xls, .xlsx">
     <div id="loadingMessage" style="display:none;">Loading...</div>
+    <button id="downloadButton">Download CT Summary as Excel</button>
     <div id="tableContainer"></div>
     <script>
         async function loadPyodideAndPackages() {
@@ -155,13 +156,33 @@ df_grouped = df.groupby(['Row Group', 'Column Group'])['CT'].agg(['mean','std','
 # df_pivot.columns.name = 'Column Group'
 # df = df_pivot.reset_index()
 html_table = df_grouped.to_html(index=False)
-html_table
+(df_grouped, html_table)
                 `;
-                const htmlTable = await pyodide.runPythonAsync(pythonCode);
-                document.getElementById('tableContainer').innerHTML = htmlTable;
+                const [df_grouped, html_table] = await pyodide.runPythonAsync(pythonCode);
+                document.getElementById('tableContainer').innerHTML = html_table;
                 document.getElementById('loadingMessage').style.display = 'none';
             };
             reader.readAsArrayBuffer(file);
+            <!--Handle download button click-->
+            document.getElementById('downloadButton').onclick = async () => {
+                const pythonCodeForDownload = `
+import io
+output = io.BytesIO()
+with pd.ExcelWriter(output, engine='openpyxl') as writer:
+    df_grouped.to_excel(writer, index=False, sheet_name='CT Summary')
+output.seek(0)
+import base64
+b64 = base64.b64encode(output.read()).decode()
+b64
+                `;
+                const b64 = await pyodide.runPythonAsync(pythonCodeForDownload);
+                const link = document.createElement('a');
+                link.href = 'data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,' + b64;
+                link.download = 'ct_summary.xlsx';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            };
         });
     </script>
 </body>
