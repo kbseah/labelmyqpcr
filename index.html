@@ -132,6 +132,7 @@
       <input type="number" id="colWrapInput" value="3" size="5">
     </p>
     <button id="plotButton" disabled=true>Generate plot</button>
+    <button id="savePlotPdf" disabled=true>Save plot as PDF</button>
     <div id="plottingMessage" class="message" style="display:none;">🤖 Generating plot...</div>
     <div id="plotContainer"></div>
 
@@ -286,6 +287,24 @@ img_base64`;
                   document.getElementById("plotContainer").appendChild(imgElement);
                   document.getElementById("plottingMessage").style.display = "none";
                 };
+                // Save plot as PDF when button clicked
+                document.getElementById("savePlotPdf").disabled = false;
+                document.getElementById("savePlotPdf").onclick = async () => {
+                  const pythonCodeForPdf = `
+buf = io.BytesIO()
+fg.savefig(buf, format="pdf")
+buf.seek(0)
+pdf_base64 = base64.b64encode(buf.read()).decode("utf-8")
+pdf_base64`;
+                  const pdfBase64 = await pyodide.runPythonAsync(pythonCodeForPdf);
+                  const pdfBlob = new Blob([Uint8Array.from(atob(pdfBase64), c => c.charCodeAt(0))], {type: "application/pdf"});
+                  const downloadLink = document.createElement("a");
+                  downloadLink.href = URL.createObjectURL(pdfBlob);
+                  downloadLink.download = "ct_swarmplot.pdf";
+                  document.body.appendChild(downloadLink);
+                  downloadLink.click();
+                  document.body.removeChild(downloadLink);
+                }
             };
             labelsReader.readAsArrayBuffer(labelsFile);
         }
