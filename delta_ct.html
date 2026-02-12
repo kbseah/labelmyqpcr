@@ -33,6 +33,13 @@
 </head>
 <body>
     <h1>Delta CT Method</h1>
+
+    <p><a href="https://github.com/kbseah/labelmyqpcr">GitHub repo</a></p>
+
+    <p>Another tool for summarizing technical replicates directly from
+    QuantStudio 5 Excel formatted export: <a
+    href="index.html">labelmyqpcr</a></p>
+
     <p>Take an input table with Ct values, labels for group, timepoint, and
     target gene, and calculate relative expression as Delta-Delta Ct values.
     Delta Ct is first taken relative to the reference Timepoint. Delta Delta Ct
@@ -41,32 +48,50 @@
     Ct values.</p>
 
     <h2>Input file</h2>
-    <p>Input should be a single Excel file with at least the following columns:</p>
+
+    <p>Input should be a single Excel file with the following columns:</p>
+
     <ul>
         <li><strong>Group</strong>: Experimental group (e.g., Control, Treatment).</li>
         <li><strong>Timepoint</strong>: Timepoint of the sample (e.g., 0h, 24h).</li>
         <li><strong>Target</strong>: Target gene (or primer pair) name.</li>
         <li><strong>Ct</strong>: Ct value for the target gene.</li>
     </ul>
+    <p>Content in other columns will be ignored.</p>
+
     <p>If there is more than one row with the same combination of
     Group/Timepoint/Target labels, these are understood to represent technical
     replicates. The script will calculate mean, standard deviation, and N for
     Ct values per Group/Timepoint/Target combination.</p>
+
     <input type="file" id="fileInput" />
+
     <p>Parameters:</p>
+
     <p>
       <input type="text" id="refTimepoint" placeholder="(e.g., 0h)" />
-      <label for="refTimepoint"><strong>Reference Timepoint</strong>: The timepoint used as a baseline for Delta Ct calculations (e.g., 0h).</label>
+      <label for="refTimepoint"><strong>Reference Timepoint</strong>: The
+        timepoint used as a baseline for Delta Ct calculations (e.g.,
+        0h).</label>
     </p>
     <p>
       <input type="text" id="refTarget" placeholder="(e.g., GAPDH)" />
-      <label for="refTarget"><strong>Reference Target</strong>: The target gene used as baseline for Delta Delta Ct calculations (e.g., GAPDH).</label>
+      <label for="refTarget"><strong>Reference Target</strong>: The target gene
+        used as baseline for Delta Delta Ct calculations (e.g., GAPDH).</label>
     </p>
+
     <button id="processButton">Process Data</button>
-    <div id="loadingMessage" class="message" style="display:none;">Loading Pyodide and packages, please wait...</div>
+
+    <div id="loadingMessage" class="message" style="display:none;">Loading
+      Pyodide and packages, please wait...</div>
 
     <h2>Output</h2>
-    <p>The output will be a table with calculated Delta-Delta Ct values for each target gene, along with relative expression levels.</p>
+
+    <p>The output will be a table with calculated Delta-Delta Ct values for
+    each target gene, along with relative expression levels.</p>
+
+    <button id="downloadButton" disabled=true>Download processed table in Excel format</button>
+
     <div id="tableContainer"></div>
 
     <script>
@@ -123,7 +148,7 @@ decoded_data = base64.b64decode(base64_data)
 excel_data = io.BytesIO(decoded_data)
 # Read the Excel file into a DataFrame
 df = pd.read_excel(excel_data)
-for colname in ["Sample", "Group", "Timepoint", "Target", "Ct"]:
+for colname in ["Group", "Timepoint", "Target", "Ct"]:
     if colname not in df.columns:
         raise ValueError(f"Missing required column: {colname}")
 print(df)
@@ -141,7 +166,7 @@ if ref_target not in df["Target"].values:
 if ref_timepoint not in df["Timepoint"].values:
     raise ValueError(f"Reference timepoint '{ref_timepoint}' not found in Timepoint column.")
 df_grouped = df.groupby(
-  ["Sample","Group","Timepoint","Target"]
+  ["Group","Timepoint","Target"]
 )["Ct"].agg(["mean","std","count"]).reset_index()
 df_grouped_pivot = df_grouped.pivot(
   index=["Group","Target"], columns="Timepoint",values="mean"
@@ -180,10 +205,39 @@ df_merged, df_merged.to_html()
         `;
                 const [df_merged, html_table] = await pyodide.runPythonAsync(pyCalculate);
                 document.getElementById("tableContainer").innerHTML = html_table;
+                // Enable download button
+                document.getElementById("downloadButton").disabled = false;
+                document.getElementById("downloadButton").onclick = async () => {
+                    try {
+                        const pyDownload = `
+import pandas as pd
+import base64
+import io
+output = io.BytesIO()
+with pd.ExcelWriter(output, engine='openpyxl') as writer:
+    df_merged.to_excel(writer, index=False, sheet_name='DeltaDeltaCt')
+output.seek(0)
+b64 = base64.b64encode(output.read()).decode('utf-8')
+b64
+                        `;
+                        const b64 = await pyodide.runPythonAsync(pyDownload);
+                        const link = document.createElement("a");
+                        link.href = "data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64," + b64;
+                        link.download = "delta_delta_ct_output.xlsx";
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                    } catch (error) {
+                        console.error("Error downloading file:", error);
+                        alert("An error occurred while downloading the file: " + error.message);
+                    }
+                }
+
             } catch (error) {
                 console.error("Error processing file:", error);
                 alert("An error occurred while processing the file: " + error.message);
             }
+
         }
 
         // Process file when button is clicked
