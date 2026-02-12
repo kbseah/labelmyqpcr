@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.21.3/full/pyodide.js"></script>
+    <title>Delta CT Method</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <h1>Delta CT Method</h1>
+    <p>Take an input table with Ct values, sample labels for group, timepoint, and target gene, and calculate relative expression as Delta Ct or Delta-Delta Ct values.</p>
+    <h2>Input file</h2>
+    <p>Input should be a single Excel file with at least the following columns:</p>
+    <ul>
+        <li><strong>Sample</strong>: Unique identifier for each sample.</li>
+        <li><strong>Group</strong>: Experimental group (e.g., Control, Treatment).</li>
+        <li><strong>Timepoint</strong>: Timepoint of the sample (e.g., 0h, 24h).</li>
+        <li><strong>Target</strong>: Target gene (or primer pair) name.</li>
+        <li><strong>Ct</strong>: Ct value for the target gene.</li>
+    </ul>
+    <input type="file" id="fileInput" />
+    <h3>Parameters</h3>
+    <ul>
+      <li><strong>Reference Target</strong>: The target gene used for normalization (e.g., GAPDH).</li>
+      <li><strong>Reference Timepoint</strong>: The timepoint used as a baseline for Delta-Delta Ct calculations (e.g., 0h).</li>
+    </ul>
+    <input type="text" id="refTarget" placeholder="Reference Target (e.g., GAPDH)" />
+    <input type="text" id="refTimepoint" placeholder="Reference Timepoint (e.g., 0h)" />
+    <!-- <input type="dropdown" id="deltaReference" > -->
+    <!--   <option value="timepoint">Timepoint</option> -->
+    <!--   <option value="group">Group</option> -->
+    <!--   <option value="target">Target</option> -->
+    <!-- </input> -->
+    <!-- <input type="dropdown" id="deltaDeltaReference" > -->
+    <!--   <option value="none">None</option> -->
+    <!--   <option value="timepoint">Timepoint</option> -->
+    <!--   <option value="group">Group</option> -->
+    <!--   <option value="target">Target</option> -->
+    <!-- </input> -->
+    <button id="processButton">Process Data</button>
+    <div id="loadingMessage" style="display:none;">Loading Pyodide and packages, please wait...</div>
+    <h2>Output</h2>
+    <p>The output will be a table with calculated Delta Ct and Delta-Delta Ct values for each target gene, along with relative expression levels.</p>
+    <div id="output"></div>
+    <script>
+        async function loadPyodideAndPackages() {
+            // Display loading message
+            document.getElementById("loadingMessage").style.display = "block";
+            const pyodide = await loadPyodide();
+            await pyodide.loadPackage("pandas");
+            await pyodide.loadPackage("xlrd");
+            await pyodide.loadPackage("micropip");
+            // Install openpyxl via micropip
+            await pyodide.runPythonAsync(`
+import micropip
+await micropip.install("openpyxl")
+import openpyxl
+            `);
+            return pyodide;
+        }
+
+        function arrayBufferToBase64(buffer) {
+            let binary = "";
+            const bytes = new Uint8Array(buffer);
+            const len = bytes.byteLength;
+            for (let i = 0; i < len; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return window.btoa(binary);
+        }
+
+        async function processFile() {
+           try {
+                const fileInput = document.getElementById("fileInput");
+                const refTarget = document.getElementById("refTarget").value;
+                const refTimepoint = document.getElementById("refTimepoint").value;
+
+                if (fileInput.files.length === 0) {
+                    alert("Please select an input file.");
+                    return;
+                }
+                const file = fileInput.files[0];
+                const arrayBuffer = await file.arrayBuffer();
+                const base64Data = arrayBufferToBase64(arrayBuffer);
+                const pyodide = await loadPyodideAndPackages();
+
+                const pyLoadFile = `
+import pandas as pd
+import io
+import base64
+
+# Decode the base64 data
+base64_data = """${base64Data}"""
+decoded_data = base64.b64decode(base64_data)
+excel_data = io.BytesIO(decoded_data)
+# Read the Excel file into a DataFrame
+df = pd.read_excel(excel_data)
+for colname in ['Sample', 'Group', 'Timepoint', 'Target', 'Ct']:
+    if colname not in df.columns:
+        raise ValueError(f"Missing required column: {colname}")
+# Parameters
+ref_target = """${refTarget}"""
+ref_timepoint = """${refTimepoint}"""
+if ref_target not in df['Target'].values:
+    raise ValueError(f"Reference target '{ref_target}' not found in Target column.")
+if ref_timepoint not in df['Timepoint'].values:
+    raise ValueError(f"Reference timepoint '{ref_timepoint}' not found in Timepoint column.")
+print(df)`;
+
+                await pyodide.runPythonAsync(pyLoadFile);
+            } catch (error) {
+                console.error("Error processing file:", error);
+                alert("An error occurred while processing the file: " + error.message);
+            }
+        }
+
+        // Process file when button is clicked
+        document.getElementById("processButton").addEventListener("click", processFile);
+
+    </script>
+</body>
+</html>
