@@ -4,45 +4,71 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://cdn.jsdelivr.net/pyodide/v0.21.3/full/pyodide.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .message {
+            font-family: Courier New, monospace;
+            font-size: 80%;
+            color: darkgreen;
+            margin-top: 20px;
+        }
+    </style>
     <title>Delta CT Method</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <h1>Delta CT Method</h1>
-    <p>Take an input table with Ct values, sample labels for group, timepoint, and target gene, and calculate relative expression as Delta Ct or Delta-Delta Ct values.</p>
+    <p>Take an input table with Ct values, labels for group, timepoint, and
+    target gene, and calculate relative expression as Delta-Delta Ct values.
+    Delta Ct is first taken relative to the reference Timepoint. Delta Delta Ct
+    is then taken relative to the reference Target. Finally the relative
+    expression value is calculated by exponentiating the negative Delta Delta
+    Ct values.</p>
+
     <h2>Input file</h2>
     <p>Input should be a single Excel file with at least the following columns:</p>
     <ul>
-        <li><strong>Sample</strong>: Unique identifier for each sample.</li>
         <li><strong>Group</strong>: Experimental group (e.g., Control, Treatment).</li>
         <li><strong>Timepoint</strong>: Timepoint of the sample (e.g., 0h, 24h).</li>
         <li><strong>Target</strong>: Target gene (or primer pair) name.</li>
         <li><strong>Ct</strong>: Ct value for the target gene.</li>
     </ul>
+    <p>If there is more than one row with the same combination of
+    Group/Timepoint/Target labels, these are understood to represent technical
+    replicates. The script will calculate mean, standard deviation, and N for
+    Ct values per Group/Timepoint/Target combination.</p>
     <input type="file" id="fileInput" />
-    <h3>Parameters</h3>
-    <ul>
-      <li><strong>Reference Target</strong>: The target gene used for normalization (e.g., GAPDH).</li>
-      <li><strong>Reference Timepoint</strong>: The timepoint used as a baseline for Delta-Delta Ct calculations (e.g., 0h).</li>
-    </ul>
-    <input type="text" id="refTarget" placeholder="Reference Target (e.g., GAPDH)" />
-    <input type="text" id="refTimepoint" placeholder="Reference Timepoint (e.g., 0h)" />
-    <!-- <input type="dropdown" id="deltaReference" > -->
-    <!--   <option value="timepoint">Timepoint</option> -->
-    <!--   <option value="group">Group</option> -->
-    <!--   <option value="target">Target</option> -->
-    <!-- </input> -->
-    <!-- <input type="dropdown" id="deltaDeltaReference" > -->
-    <!--   <option value="none">None</option> -->
-    <!--   <option value="timepoint">Timepoint</option> -->
-    <!--   <option value="group">Group</option> -->
-    <!--   <option value="target">Target</option> -->
-    <!-- </input> -->
+    <p>Parameters:</p>
+    <p>
+      <input type="text" id="refTimepoint" placeholder="(e.g., 0h)" />
+      <label for="refTimepoint"><strong>Reference Timepoint</strong>: The timepoint used as a baseline for Delta Ct calculations (e.g., 0h).</label>
+    </p>
+    <p>
+      <input type="text" id="refTarget" placeholder="(e.g., GAPDH)" />
+      <label for="refTarget"><strong>Reference Target</strong>: The target gene used as baseline for Delta Delta Ct calculations (e.g., GAPDH).</label>
+    </p>
     <button id="processButton">Process Data</button>
-    <div id="loadingMessage" style="display:none;">Loading Pyodide and packages, please wait...</div>
+    <div id="loadingMessage" class="message" style="display:none;">Loading Pyodide and packages, please wait...</div>
+
     <h2>Output</h2>
     <p>The output will be a table with calculated Delta-Delta Ct values for each target gene, along with relative expression levels.</p>
     <div id="tableContainer"></div>
+
     <script>
         async function loadPyodideAndPackages() {
             // Display loading message
@@ -84,6 +110,7 @@ import openpyxl
                 const arrayBuffer = await file.arrayBuffer();
                 const base64Data = arrayBufferToBase64(arrayBuffer);
                 const pyodide = await loadPyodideAndPackages();
+                document.getElementById("loadingMessage").style.display = "none";
 
                 const pyLoadFile = `
 import pandas as pd
@@ -113,24 +140,45 @@ if ref_target not in df["Target"].values:
     raise ValueError(f"Reference target '{ref_target}' not found in Target column.")
 if ref_timepoint not in df["Timepoint"].values:
     raise ValueError(f"Reference timepoint '{ref_timepoint}' not found in Timepoint column.")
-df_grouped = df.groupby(["Sample","Group","Timepoint","Target"])["Ct"].agg(["mean","std","count"]).reset_index()
-df_grouped_pivot = df_grouped.pivot(index=["Group","Target"], columns="Timepoint",values="mean")
+df_grouped = df.groupby(
+  ["Sample","Group","Timepoint","Target"]
+)["Ct"].agg(["mean","std","count"]).reset_index()
+df_grouped_pivot = df_grouped.pivot(
+  index=["Group","Target"], columns="Timepoint",values="mean"
+)
 df_deltaCt = df_grouped_pivot.apply(
   lambda x: x - x[ref_timepoint], axis=1
 ).reset_index().melt(
   id_vars=["Group","Target"], var_name="Timepoint", value_name="DeltaCt"
 )
-df_deltaCt_pivot_target = df_deltaCt.pivot(index=["Group","Timepoint"], columns="Target", values="DeltaCt")
+df_deltaCt_pivot_target = df_deltaCt.pivot(
+  index=["Group","Timepoint"], columns="Target", values="DeltaCt"
+)
 df_deltadeltaCt = df_deltaCt_pivot_target.apply(
   lambda x: x - x[ref_target], axis=1
 ).reset_index().melt(
   id_vars=["Group","Timepoint"], var_name="Target", value_name="DeltaDeltaCt"
 )
-df_deltadeltaCt["RelativeExpression"] = 2 ** (-df_deltadeltaCt["DeltaDeltaCt"])
-print(df_deltadeltaCt)
-df_deltadeltaCt, df_deltadeltaCt.to_html()
+# Merge with Ct means, stds, counts, and DeltaCt values
+df_merged = pd.merge(
+  df_grouped[["Group","Timepoint","Target","mean","std","count"]],
+  df_deltaCt,
+  on=["Group","Timepoint","Target"],
+  how="left"
+).merge(
+  df_deltadeltaCt,
+  on=["Group","Timepoint","Target"],
+  how="left"
+).rename(columns={
+  "mean":"CtMean",
+  "std":"CtStdDev",
+  "count":"CtN"
+})
+df_merged["RelativeExpression"] = 2 ** (-df_merged["DeltaDeltaCt"])
+print(df_merged)
+df_merged, df_merged.to_html()
         `;
-                const [df_deltadeltaCt, html_table] = await pyodide.runPythonAsync(pyCalculate);
+                const [df_merged, html_table] = await pyodide.runPythonAsync(pyCalculate);
                 document.getElementById("tableContainer").innerHTML = html_table;
             } catch (error) {
                 console.error("Error processing file:", error);
