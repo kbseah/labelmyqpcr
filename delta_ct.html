@@ -41,8 +41,8 @@
     <button id="processButton">Process Data</button>
     <div id="loadingMessage" style="display:none;">Loading Pyodide and packages, please wait...</div>
     <h2>Output</h2>
-    <p>The output will be a table with calculated Delta Ct and Delta-Delta Ct values for each target gene, along with relative expression levels.</p>
-    <div id="output"></div>
+    <p>The output will be a table with calculated Delta-Delta Ct values for each target gene, along with relative expression levels.</p>
+    <div id="tableContainer"></div>
     <script>
         async function loadPyodideAndPackages() {
             // Display loading message
@@ -96,19 +96,42 @@ decoded_data = base64.b64decode(base64_data)
 excel_data = io.BytesIO(decoded_data)
 # Read the Excel file into a DataFrame
 df = pd.read_excel(excel_data)
-for colname in ['Sample', 'Group', 'Timepoint', 'Target', 'Ct']:
+for colname in ["Sample", "Group", "Timepoint", "Target", "Ct"]:
     if colname not in df.columns:
         raise ValueError(f"Missing required column: {colname}")
+print(df)
+df
+             `;
+
+                const df = await pyodide.runPythonAsync(pyLoadFile);
+                // Calculate Delta Ct and Delta-Delta Ct
+                const pyCalculate = `
 # Parameters
 ref_target = """${refTarget}"""
 ref_timepoint = """${refTimepoint}"""
-if ref_target not in df['Target'].values:
+if ref_target not in df["Target"].values:
     raise ValueError(f"Reference target '{ref_target}' not found in Target column.")
-if ref_timepoint not in df['Timepoint'].values:
+if ref_timepoint not in df["Timepoint"].values:
     raise ValueError(f"Reference timepoint '{ref_timepoint}' not found in Timepoint column.")
-print(df)`;
-
-                await pyodide.runPythonAsync(pyLoadFile);
+df_grouped = df.groupby(["Sample","Group","Timepoint","Target"])["Ct"].agg(["mean","std","count"]).reset_index()
+df_grouped_pivot = df_grouped.pivot(index=["Group","Target"], columns="Timepoint",values="mean")
+df_deltaCt = df_grouped_pivot.apply(
+  lambda x: x - x[ref_timepoint], axis=1
+).reset_index().melt(
+  id_vars=["Group","Target"], var_name="Timepoint", value_name="DeltaCt"
+)
+df_deltaCt_pivot_target = df_deltaCt.pivot(index=["Group","Timepoint"], columns="Target", values="DeltaCt")
+df_deltadeltaCt = df_deltaCt_pivot_target.apply(
+  lambda x: x - x[ref_target], axis=1
+).reset_index().melt(
+  id_vars=["Group","Timepoint"], var_name="Target", value_name="DeltaDeltaCt"
+)
+df_deltadeltaCt["RelativeExpression"] = 2 ** (-df_deltadeltaCt["DeltaDeltaCt"])
+print(df_deltadeltaCt)
+df_deltadeltaCt, df_deltadeltaCt.to_html()
+        `;
+                const [df_deltadeltaCt, html_table] = await pyodide.runPythonAsync(pyCalculate);
+                document.getElementById("tableContainer").innerHTML = html_table;
             } catch (error) {
                 console.error("Error processing file:", error);
                 alert("An error occurred while processing the file: " + error.message);
